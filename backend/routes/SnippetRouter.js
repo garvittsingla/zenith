@@ -7,75 +7,78 @@ const auth = require("../middleware")
 require("dotenv").config()
 const getMetadata = require("../functions/GeminiAPIscript")
 const Linkedinpuppet = require('../functions/LinkedinPuppet')
+const getKeywords = require("../functions/Getdata")
 
 
 SnippetRouter.use(express.json())
-SnippetRouter.post("/create",auth,async(req,res)=>{
-    
-    // const {title,platform,description,tags,url} = req.body
-    const url = req.body.url;
-    let puppeteerCompletionStatus;
-    let AiAnswerStatus;
-    // const url = "https://www.instagram.com/reel/DFz3reJPsRq/?utm_source=ig_web_copy_link"
-    if (url.includes("linkedin")){
-        puppeteerCompletionStatus = await Linkedinpuppet(url)
-        if (puppeteerCompletionStatus[0]){
-            console.log("made the linkedin supported screenshot")
-            AiAnswerStatus = await getMetadata(puppeteerCompletionStatus[1]);
-            if (AiAnswerStatus[0]) {
-                console.log("made the metadata")
-                console.log(AiAnswerStatus[1]);
-            } else {
-                console.log("Something is wrong with the getMetadata")
-                console.log(AiAnswerStatus[1])
-            }
-        }
-        else {
-            console.log("Some thing is wrong with making the image")
-            console.log(puppeteerCompletionStatus[1])
-        }    
-    } else {
-        puppeteerCompletionStatus = await Instapuppet(url)
-        if (puppeteerCompletionStatus[0]){
-            console.log("made the insta supported ss")
-            AiAnswerStatus = await getMetadata(puppeteerCompletionStatus[1]);
-            if (AiAnswerStatus[0]) {
-                console.log("made the metadata")
-                console.log(AiAnswerStatus[1]);
-            } else {
-                console.log("Something is wrong with the getMetadata")
-                console.log(AiAnswerStatus[1])
-            }
-        }
-        else {
-            console.log("Some thing is wrong with Insta puppet code")
-            console.log(puppeteerCompletionStatus[1])
-        }  
-    }
-
-
-
-
-
-    
-    
-        // const created = await Snippet.create({
-        //     userId:req.userId,
-        //     title:title,
-        //     description:description,
-        //     platform:platform,
-        //     tags:tags,
-        //     url:url
-        // })
-        // if (created){
-        //     return res.status(200).json({
-        //         message:"Created successfully"
-        //     })
-        // }
-   
+SnippetRouter.post("/create", auth, async (req, res) => {
+    try {
+        const { url } = req.body;
         
-    
-})
+        if (!url) {
+            return res.status(400).json({
+                message: "URL is required"
+            });
+        }
+
+        let data;
+        
+        if (url.includes("linkedin")) {
+            const puppeteerResult = await Linkedinpuppet(url);
+            if (!puppeteerResult[0]) {
+                throw new Error('LinkedIn screenshot failed: ' + puppeteerResult[1]);
+            }
+            
+            const metadataResult = await getMetadata(puppeteerResult[1]);
+            if (!metadataResult[0]) {
+                throw new Error('LinkedIn metadata failed: ' + metadataResult[1]);
+            }
+            
+            data = metadataResult[1];
+        } else {
+            const puppeteerResult = await Instapuppet(url);
+            if (!puppeteerResult[0]) {
+                throw new Error('Instagram screenshot failed: ' + puppeteerResult[1]);
+            }
+            console.log("Screenshot saved successfully");
+            
+            const metadataResult = await getMetadata(puppeteerResult[1]);
+            if (!metadataResult[0]) {
+                throw new Error('Instagram metadata failed: ' + metadataResult[1]);
+            }
+            console.log("Metadata generated successfully");
+            
+            data = metadataResult[1];
+        }
+
+        // Validate data object
+        if (!data || !data.title || !data.description || !data.platform || !data.keywords) {
+            throw new Error('Invalid metadata received: Missing required fields');
+        }
+
+        // Create snippet
+        const created = await Snippet.create({
+            userId: req.userId,
+            title: data.title,
+            description: data.description,
+            platform: data.platform,
+            tags: data.keywords,
+            url: url
+        });
+
+        return res.status(200).json({
+            message: "Snippet created successfully",
+        });
+
+    } catch (error) {
+        console.error('Error in snippet creation:', error);
+        return res.status(500).json({
+            message: error.message || "Failed to create snippet",
+            error: error.toString()
+        });
+    }
+});
+
 
 SnippetRouter.get("/view",auth,async(req,res)=>{
    const userId = req.userId
@@ -88,6 +91,43 @@ SnippetRouter.get("/view",auth,async(req,res)=>{
         
     
 })
+SnippetRouter.post("/ai",auth,async(req,res)=>{
+    const userId = req.userId
+    const {prompt} = req.body
+    const data = await Snippet.find({
+        userId:userId
+    })
+    const alltags = []
+    data.forEach((snippet)=>{
+        snippet.tags.forEach((tag)=>{
+            if (alltags[tag]){
+                alltags[tag] = alltags[tag]+1
+            }else{
+               alltags.push(tag)
+            }
+        })
+    })
 
+    const resultt = await getKeywords(prompt, alltags)
+    console.log(resultt)
+    const finalresultt = JSON.parse(resultt)
+    
+    const matchingSnippets = []
+    for (const tag of finalresultt) {
+        const snippet = await Snippet.findOne({ "tags": { $regex: tag } })
+        if (snippet) matchingSnippets.push(snippet)
+    }
+console.log(matchingSnippets)
+   const finalobj = []
+   const seenIds = new Set()
+   for (let i = 0; i < matchingSnippets.length; i++) {
+        if (!seenIds.has(matchingSnippets[i]._id.toString())) {
+            seenIds.add(matchingSnippets[i]._id.toString())
+            finalobj.push(matchingSnippets[i])
+        }
+    }
+    return res.status(200).json(finalobj)
+ })
+ 
 
 module.exports=SnippetRouter

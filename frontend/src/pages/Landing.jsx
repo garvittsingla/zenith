@@ -1,16 +1,11 @@
 import React from 'react'
 import Landingnav from '../components/Landingnav'
-import Aurora from '../components/Aurora';
 
 const Landing = () => {
   return (
-    <div className='min-h-screen w-full absolute '>
-  <Aurora
-    className="w-full h-screen relative"
-    colorStops={["#502fa8", "#43288a", "#28185d"]}
-    speed={0.6}
-  />
+    <div className='min-h-screen w-full bg-[#070707] pt-4  '>
         <Landingnav/>
+        
     </div>  
   )
 }
